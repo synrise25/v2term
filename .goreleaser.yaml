@@ -1,0 +1,63 @@
+version: 2
+
+project_name: v2term
+
+builds:
+  - main: ./cmd/v2term
+    binary: v2term
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - docs/usage.md
+      - docs/assets/*.png
+      - CONTRIBUTING.md
+      - SECURITY.md
+
+nfpms:
+  - package_name: v2term
+    file_name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}'
+    homepage: https://github.com/synrise25/v2term
+    maintainer: synrise25 <synrise25@users.noreply.github.com>
+    description: V2EX 终端客户端
+    license: MIT
+    formats: [deb]
+    section: utils
+    priority: optional
+    umask: 0o022
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/v2term/copyright
+      - src: docs/usage.md
+        dst: /usr/share/doc/v2term/usage.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: 0.0.0-dev
+
+release:
+  github:
+    owner: synrise25
+    name: v2term
+  prerelease: auto
+
+changelog:
+  use: git
+  filters:
+    exclude: ['^docs:', '^test:', '^ci:', '^chore:']

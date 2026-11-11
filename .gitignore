@@ -1,0 +1,15 @@
+/v2term
+/bin/
+/dist/
+/coverage.out
+*.test
+.env
+cookies*
+.cookies*
+session*.json
+state*.json
+/.private-context/
+/AGENTS.md
+/.agents/
+/.codex/
+.DS_Store

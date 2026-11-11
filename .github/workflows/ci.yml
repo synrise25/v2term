@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: 格式检查
+        run: test -z "$(gofmt -l cmd internal)"
+      - run: go test -race ./...
+      - run: go vet ./...
+      - name: 安装 GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          install-only: true
+          version: v2.20.1
+      - run: goreleaser check
+      - name: 构建六个平台和 Linux 安装包
+        run: goreleaser release --snapshot --clean
+      - name: 验证包管理器清单
+        run: python3 scripts/package-metadata.py v0.0.0-dev
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v2term-${{ github.sha }}
+          retention-days: 7
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.deb
+            dist/checksums.txt
+            dist/v2term.rb
