@@ -17,10 +17,9 @@ def build(packages, output):
     repo = output / "apt"
     pool = repo / "pool/main/v/v2term"
     pool.mkdir(parents=True)
-    checksums = dict((line.split()[1], line.split()[0]) for line in (packages / "checksums.txt").read_text().splitlines())
-    versions = set()
-    architectures = set()
-    for package in sorted(packages.glob("*.deb")):
+    versions = {}
+    for package in sorted(packages.rglob("*.deb")):
+        checksums = dict((line.split()[1], line.split()[0]) for line in (package.parent / "checksums.txt").read_text().splitlines())
         if hashlib.sha256(package.read_bytes()).hexdigest() != checksums.get(package.name):
             raise ValueError(f"安装包缺少有效的 SHA256 校验：{package.name}")
         fields = subprocess.check_output(
@@ -30,16 +29,16 @@ def build(packages, output):
         fields = dict(line.split(": ", 1) for line in fields.splitlines())
         if fields["Package"] != "v2term" or fields["Architecture"] not in {"amd64", "arm64"}:
             raise ValueError(f"不支持的安装包：{package.name}")
-        versions.add(fields["Version"])
-        if fields["Architecture"] in architectures:
-            raise ValueError("同一架构只能包含一个发行版本")
+        architectures = versions.setdefault(fields["Version"], set())
+        if fields["Architecture"] in architectures or (pool / package.name).exists():
+            raise ValueError("同一版本和架构的安装包重复，或文件名发生冲突")
         architectures.add(fields["Architecture"])
         shutil.copyfile(package, pool / package.name)
-    if architectures != {"amd64", "arm64"} or len(versions) != 1:
-        raise ValueError("必须提供同一版本的 amd64 和 arm64 安装包")
+    if not versions or any(arches != {"amd64", "arm64"} for arches in versions.values()):
+        raise ValueError("每个发行版本都必须提供 amd64 和 arm64 安装包")
 
     release_dir = repo / "dists/stable"
-    for arch in sorted(architectures):
+    for arch in ["amd64", "arm64"]:
         index = subprocess.check_output(["dpkg-scanpackages", "--arch", arch, "pool"], cwd=repo)
         target = release_dir / f"main/binary-{arch}"
         target.mkdir(parents=True)

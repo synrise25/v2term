@@ -35,7 +35,9 @@ jobs:
       - name: 验证包管理器清单
         run: python3 scripts/package-metadata.py v0.0.0-dev
       - name: 验证 APT 索引生成
-        run: python3 scripts/build-apt-repo.py dist "$RUNNER_TEMP/apt-test"
+        run: |
+          python3 scripts/build-apt-repo.py dist "$RUNNER_TEMP/apt-test"
+          python3 scripts/test-apt-repo.py
       - uses: actions/upload-artifact@v4
         with:
           name: v2term-${{ github.sha }}
