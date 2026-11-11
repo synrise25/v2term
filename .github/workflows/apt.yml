@@ -26,14 +26,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      package_version: ${{ steps.download.outputs.package_version }}
     steps:
       - uses: actions/checkout@v6
-      - name: 下载最新稳定版安装包
+      - name: 下载稳定版安装包并保留历史版本
+        id: download
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download --pattern '*.deb' --pattern checksums.txt --dir "$RUNNER_TEMP/deb"
-          (cd "$RUNNER_TEMP/deb" && sha256sum --check --ignore-missing checksums.txt)
+          latest_tag=$(gh release view --json tagName --jq .tagName)
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > "$RUNNER_TEMP/stable-tags"
+          while IFS= read -r tag; do
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            gh release download "$tag" --pattern '*.deb' --pattern checksums.txt --dir "$RUNNER_TEMP/deb/$tag"
+            (cd "$RUNNER_TEMP/deb/$tag" && sha256sum --check --ignore-missing checksums.txt)
+          done < "$RUNNER_TEMP/stable-tags"
+          expected_file="$RUNNER_TEMP/deb/$latest_tag/v2term_${latest_tag#v}_amd64.deb"
+          package_version=$(dpkg-deb --field "$expected_file" Version)
+          echo "package_version=$package_version" >> "$GITHUB_OUTPUT"
       - name: 生成索引
         run: python3 scripts/build-apt-repo.py "$RUNNER_TEMP/deb" "$RUNNER_TEMP/apt-site"
       - name: 签名并验证索引
@@ -68,15 +79,24 @@ jobs:
       - uses: actions/deploy-pages@v4
         id: deployment
   install:
-    needs: deploy
+    needs: [build, deploy]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: 验证真实 APT 安装
+        env:
+          EXPECTED_VERSION: ${{ needs.build.outputs.package_version }}
         run: |
           sudo install -d -m 755 /etc/apt/keyrings
           curl --retry 5 --retry-all-errors --retry-delay 5 -fsSL https://synrise25.github.io/v2term/apt/v2term.asc | sudo tee /etc/apt/keyrings/v2term.asc >/dev/null
           echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/v2term.asc] https://synrise25.github.io/v2term/apt stable main" | sudo tee /etc/apt/sources.list.d/v2term.list
-          sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/v2term.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
-          sudo apt-get install -y v2term
-          v2term --version
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/v2term.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 \
+              && sudo apt-get install -y "v2term=$EXPECTED_VERSION" \
+              && test "$(dpkg-query -W -f='${Version}' v2term)" = "$EXPECTED_VERSION" \
+              && test "$(v2term --version)" = "v2term $EXPECTED_VERSION"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
