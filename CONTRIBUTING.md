@@ -58,4 +58,8 @@ python3 scripts/package-metadata.py v0.0.0-dev
 
 推送 `v*.*.*` 版本标签会自动验证并发布 GitHub Release，包含六个平台的归档、两个 Linux `.deb` 包、SHA256 校验和、Homebrew 公式和 WinGet 清单。`--version` 显示构建时注入的发行版本；源码直接运行显示 `dev`。
 
-Homebrew 通过 [自有 tap](https://github.com/synrise25/homebrew-tap) 分发，定时同步最新稳定版公式，不需要在主仓库保存跨仓库写入令牌。Debian／Ubuntu 当前通过本地 `.deb` 安装，尚未提供 APT 软件源；WinGet 清单需要通过社区审核后才能从默认源安装。
+Homebrew 通过 [自有 tap](https://github.com/synrise25/homebrew-tap) 分发，定时同步最新稳定版公式，不需要在主仓库保存跨仓库写入令牌。tap 可以容纳多个项目，每个项目使用独立公式和更新流程。
+
+APT 软件源托管在 GitHub Pages，发布稳定版后自动下载并校验 `.deb`，生成 amd64／arm64 索引并签名。公钥位于 `packaging/apt/v2term.asc`，私钥仅通过 GitHub Secret `APT_SIGNING_KEY` 提供；CI 不使用真实签名私钥。需要重建时手动运行「APT 软件源」工作流。
+
+WinGet 清单需要通过社区审核后才能从默认源安装。清单生成采用社区当前的 1.28 schema，提交收录 PR 前需核对版本、架构、下载地址和发行文件校验和。

@@ -55,3 +55,13 @@ jobs:
             dist/*.tar.gz dist/*.zip dist/*.deb \
             dist/checksums.txt dist/v2term.rb --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false
+
+  apt:
+    needs: release
+    uses: ./.github/workflows/apt.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    secrets:
+      APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
