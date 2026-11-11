@@ -96,13 +96,14 @@ def generate(tag, directory):
     manifest.extend(["ManifestType: installer", "ManifestVersion: 1.28.0", ""])
     root = common + ["DefaultLocale: zh-CN", "ManifestType: version", "ManifestVersion: 1.28.0", ""]
     manifests = {
-        "synrise25.v2term.yaml": root,
-        "synrise25.v2term.installer.yaml": manifest,
-        "synrise25.v2term.locale.zh-CN.yaml": locale,
+        "synrise25.v2term.yaml": ("version", root),
+        "synrise25.v2term.installer.yaml": ("installer", manifest),
+        "synrise25.v2term.locale.zh-CN.yaml": ("defaultLocale", locale),
     }
     with zipfile.ZipFile(directory / "v2term-winget-manifests.zip", "w", zipfile.ZIP_DEFLATED) as archive_file:
-        for name, lines in manifests.items():
-            archive_file.writestr(f"manifests/s/synrise25/v2term/{version}/{name}", "\n".join(lines))
+        for name, (kind, lines) in manifests.items():
+            header = f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kind}.1.28.0.schema.json\n\n"
+            archive_file.writestr(f"manifests/s/synrise25/v2term/{version}/{name}", header + "\n".join(lines))
     for name in ["v2term.rb", "v2term-winget-manifests.zip"]:
         checksums[name] = hashlib.sha256((directory / name).read_bytes()).hexdigest()
     (directory / "checksums.txt").write_text(
