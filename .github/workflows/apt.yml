@@ -1,0 +1,82 @@
+name: APT 软件源
+
+on:
+  workflow_call:
+    secrets:
+      APT_SIGNING_KEY:
+        required: true
+  workflow_dispatch:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apt.yml
+      - scripts/build-apt-repo.py
+      - packaging/apt/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apt-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: 下载最新稳定版安装包
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --pattern '*.deb' --pattern checksums.txt --dir "$RUNNER_TEMP/deb"
+          (cd "$RUNNER_TEMP/deb" && sha256sum --check --ignore-missing checksums.txt)
+      - name: 生成索引
+        run: python3 scripts/build-apt-repo.py "$RUNNER_TEMP/deb" "$RUNNER_TEMP/apt-site"
+      - name: 签名并验证索引
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          GNUPGHOME: ${{ runner.temp }}/apt-gnupg
+        run: |
+          install -d -m 700 "$GNUPGHOME"
+          printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --import
+          fingerprint=$(gpg --batch --show-keys --with-colons packaging/apt/v2term.asc | awk -F: '$1 == "fpr" {print $10; exit}')
+          release="$RUNNER_TEMP/apt-site/apt/dists/stable/Release"
+          gpg --batch --local-user "$fingerprint" --digest-algo SHA256 --clearsign --output "${release%Release}InRelease" "$release"
+          gpg --batch --local-user "$fingerprint" --digest-algo SHA256 --armor --detach-sign --output "$release.gpg" "$release"
+          gpg --batch --dearmor --output "$RUNNER_TEMP/apt-keyring.gpg" packaging/apt/v2term.asc
+          gpgv --keyring "$RUNNER_TEMP/apt-keyring.gpg" "${release%Release}InRelease"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/apt-site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
+  install:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 验证真实 APT 安装
+        run: |
+          sudo install -d -m 755 /etc/apt/keyrings
+          curl --retry 5 --retry-all-errors --retry-delay 5 -fsSL https://synrise25.github.io/v2term/apt/v2term.asc | sudo tee /etc/apt/keyrings/v2term.asc >/dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/v2term.asc] https://synrise25.github.io/v2term/apt stable main" | sudo tee /etc/apt/sources.list.d/v2term.list
+          sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/v2term.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+          sudo apt-get install -y v2term
+          v2term --version

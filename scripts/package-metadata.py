@@ -75,7 +75,7 @@ def generate(tag, directory):
         "ShortDescription: V2EX 终端客户端",
         f"PackageUrl: {repository}",
         "ManifestType: defaultLocale",
-        "ManifestVersion: 1.10.0",
+        "ManifestVersion: 1.28.0",
         "",
     ]
     manifest = common + [
@@ -93,8 +93,8 @@ def generate(tag, directory):
             f"    InstallerUrl: {quote(url)}",
             f"    InstallerSha256: {quote(digest.upper())}",
         ])
-    manifest.extend(["ManifestType: installer", "ManifestVersion: 1.10.0", ""])
-    root = common + ["DefaultLocale: zh-CN", "ManifestType: version", "ManifestVersion: 1.10.0", ""]
+    manifest.extend(["ManifestType: installer", "ManifestVersion: 1.28.0", ""])
+    root = common + ["DefaultLocale: zh-CN", "ManifestType: version", "ManifestVersion: 1.28.0", ""]
     manifests = {
         "synrise25.v2term.yaml": root,
         "synrise25.v2term.installer.yaml": manifest,

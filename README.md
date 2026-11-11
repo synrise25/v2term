@@ -27,13 +27,17 @@ brew install synrise25/tap/v2term
 v2term
 ```
 
-Debian／Ubuntu 下载对应的 `.deb` 后安装：
+Debian／Ubuntu 可添加签名软件源，支持 amd64 和 arm64：
 
 ```sh
-sudo apt install ./v2term_0.3.0_amd64.deb
+sudo install -d -m 755 /etc/apt/keyrings
+curl -fsSL https://synrise25.github.io/v2term/apt/v2term.asc | sudo tee /etc/apt/keyrings/v2term.asc >/dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/v2term.asc] https://synrise25.github.io/v2term/apt stable main" | sudo tee /etc/apt/sources.list.d/v2term.list
+sudo apt update
+sudo apt install v2term
 ```
 
-ARM64 设备选择文件名含 `arm64` 的包。Windows 解压后运行 `v2term.exe`，建议使用 Windows Terminal。WinGet 安装清单随 Release 提供，尚未收录到社区源。
+也可下载 `.deb` 后用 `sudo apt install ./文件名.deb` 安装。Windows 解压后运行 `v2term.exe`，建议使用 Windows Terminal；WinGet 已[提交社区审核](https://github.com/microsoft/winget-pkgs/pull/477313)，收录后可从默认源安装。
 
 也可以在源码目录构建：
 
