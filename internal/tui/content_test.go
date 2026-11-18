@@ -74,9 +74,10 @@ func TestReplyTargetsHaveIndependentDraftsAndThankActions(t *testing.T) {
 	if m.editor.Value() != "@alice #1 first draft" {
 		t.Fatal("targeted draft not restored")
 	}
+	m.editor.SetValue("edited without a mention")
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	deliver(m, cmd)
-	if f.replies != 1 || f.content != "@alice #1 first draft" {
+	if f.replies != 1 || f.content != "edited without a mention" || f.replyParentID != 900 {
 		t.Fatal("reply target not sent through topic form")
 	}
 	if _, ok := m.session.Drafts["/t/1#reply-900"]; ok {

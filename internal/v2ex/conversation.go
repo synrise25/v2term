@@ -9,37 +9,42 @@ import (
 var floorReference = regexp.MustCompile(`(?:^|[\s，。,:：])#([1-9][0-9]*)\b`)
 var mentionReference = regexp.MustCompile(`@([A-Za-z0-9_]+)`)
 
-// Conversation is a deterministic forest over the replies loaded on this page.
-// Explicit earlier floor references win; otherwise use the most recent mentioned
-// author. A reply has exactly one parent and is rendered exactly once.
 type ConversationReply struct {
 	Reply
 	Depth, ParentFloor int
 	Inferred           bool
 }
 
+// Conversation groups the current page by official parent ID when available.
+// Legacy replies use earlier floor references, then the latest mentioned author.
 func Conversation(replies []Reply) []ConversationReply {
 	ordered := append([]Reply(nil), replies...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Floor < ordered[j].Floor })
-	byFloor, byAuthor := map[int]int{}, map[string]int{}
+	byID, byFloor, byAuthor := map[int]int{}, map[int]int{}, map[string]int{}
 	children := make([][]int, len(ordered))
 	parents := make([]int, len(ordered))
 	inferred := make([]bool, len(ordered))
 	var roots []int
 	for i, r := range ordered {
 		parent := -1
-		for _, match := range floorReference.FindAllStringSubmatch(r.Content, -1) {
-			if at, ok := byFloor[number(match[1])]; ok && (parent < 0 || ordered[at].Floor > ordered[parent].Floor) {
+		if r.ParentID > 0 {
+			if at, ok := byID[r.ParentID]; ok && ordered[at].Floor < r.Floor {
 				parent = at
 			}
-		}
-		if parent < 0 {
-			for _, match := range mentionReference.FindAllStringSubmatch(r.Content, -1) {
-				if at, ok := byAuthor[strings.ToLower(match[1])]; ok && (parent < 0 || at > parent) {
+		} else {
+			for _, match := range floorReference.FindAllStringSubmatch(r.Content, -1) {
+				if at, ok := byFloor[number(match[1])]; ok && (parent < 0 || ordered[at].Floor > ordered[parent].Floor) {
 					parent = at
 				}
 			}
-			inferred[i] = parent >= 0
+			if parent < 0 {
+				for _, match := range mentionReference.FindAllStringSubmatch(r.Content, -1) {
+					if at, ok := byAuthor[strings.ToLower(match[1])]; ok && (parent < 0 || at > parent) {
+						parent = at
+					}
+				}
+				inferred[i] = parent >= 0
+			}
 		}
 		parents[i] = parent
 		if parent < 0 {
@@ -47,6 +52,7 @@ func Conversation(replies []Reply) []ConversationReply {
 		} else {
 			children[parent] = append(children[parent], i)
 		}
+		byID[r.ID] = i
 		byFloor[r.Floor] = i
 		byAuthor[strings.ToLower(r.Author)] = i
 	}

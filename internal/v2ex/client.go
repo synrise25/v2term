@@ -72,7 +72,7 @@ func (c *Client) CookieHeader() string {
 	return r.Header.Get("Cookie")
 }
 
-func (c *Client) request(ctx context.Context, method, path, referer string, values url.Values) ([]byte, *http.Response, error) {
+func (c *Client) request(ctx context.Context, method, path, referer string, values url.Values, headers http.Header) ([]byte, *http.Response, error) {
 	u := c.base.ResolveReference(&url.URL{Path: "/"})
 	rel, err := url.Parse(path)
 	if err != nil || rel.IsAbs() || rel.Host != "" || !strings.HasPrefix(path, "/") {
@@ -95,6 +95,9 @@ func (c *Client) request(ctx context.Context, method, path, referer string, valu
 	if method == http.MethodPost {
 		req.Header.Set("Origin", c.base.String())
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	for name, values := range headers {
+		req.Header[name] = values
 	}
 	hc := *c.http
 	if method != http.MethodGet {
@@ -127,7 +130,7 @@ func (c *Client) request(ctx context.Context, method, path, referer string, valu
 }
 
 func (c *Client) document(ctx context.Context, path string) (*goquery.Document, string, error) {
-	data, resp, err := c.request(ctx, http.MethodGet, path, "", nil)
+	data, resp, err := c.request(ctx, http.MethodGet, path, "", nil, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -155,7 +158,7 @@ func (c *Client) Fetch(ctx context.Context, path string) (Page, error) {
 }
 
 func (c *Client) once(ctx context.Context, path string) (string, error) {
-	data, _, err := c.request(ctx, http.MethodGet, "/poll_once", path, nil)
+	data, _, err := c.request(ctx, http.MethodGet, "/poll_once", path, nil, nil)
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +169,8 @@ func (c *Client) once(ctx context.Context, path string) (string, error) {
 	return token, nil
 }
 
-func (c *Client) Reply(ctx context.Context, path, content string) error {
+// Reply submits the selected parent ID when the form supports it.
+func (c *Client) Reply(ctx context.Context, path, content string, parentID int) error {
 	if !c.auth {
 		return errors.New("回复需要登录，请设置 V2TERM_COOKIE 或 --cookie-file")
 	}
@@ -195,13 +199,21 @@ func (c *Client) Reply(ctx context.Context, path, content string) error {
 	}
 	values := url.Values{}
 	form.Find("input[type='hidden'][name]").Each(func(_ int, s *goquery.Selection) { values.Set(s.AttrOr("name", ""), s.AttrOr("value", "")) })
+	if name := form.Find("input#reply_parent_id[type='hidden'][name]").First().AttrOr("name", ""); name != "" {
+		parent := ""
+		if parentID > 0 {
+			parent = strconv.Itoa(parentID)
+		}
+		values.Set(name, parent)
+	}
 	token, err := c.once(ctx, path)
 	if err != nil {
 		return err
 	}
 	values.Set("once", token)
 	values.Set("content", content)
-	data, resp, err := c.request(ctx, http.MethodPost, action, path, values)
+	headers := http.Header{"Accept": {"application/json"}, "X-Requested-With": {"XMLHttpRequest"}}
+	data, resp, err := c.request(ctx, http.MethodPost, action, path, values, headers)
 	if err != nil {
 		return fmt.Errorf("%w；发送结果可能不确定，请刷新核对后再决定是否重发", err)
 	}
@@ -209,6 +221,20 @@ func (c *Client) Reply(ctx context.Context, path, content string) error {
 		location, err := resp.Location()
 		if err == nil && location.Scheme == c.base.Scheme && location.Host == c.base.Host && location.Path == strings.Split(path, "?")[0] {
 			return nil
+		}
+	}
+	if resp.StatusCode == http.StatusOK {
+		var result struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(data, &result) == nil {
+			if result.Success {
+				return nil
+			}
+			if message := label(result.Message); message != "" {
+				return fmt.Errorf("回复未确认: %.300s", message)
+			}
 		}
 	}
 	result, _ := goquery.NewDocumentFromReader(strings.NewReader(string(data)))
@@ -235,7 +261,7 @@ func (c *Client) Thank(ctx context.Context, path, kind string, id int) error {
 	if err != nil {
 		return err
 	}
-	data, _, err := c.request(ctx, http.MethodPost, fmt.Sprintf("/thank/%s/%d?once=%s", kind, id, token), path, url.Values{})
+	data, _, err := c.request(ctx, http.MethodPost, fmt.Sprintf("/thank/%s/%d?once=%s", kind, id, token), path, url.Values{}, nil)
 	if err != nil {
 		return fmt.Errorf("%w；请刷新核对感谢结果，客户端不会自动重试", err)
 	}
