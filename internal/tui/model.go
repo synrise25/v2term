@@ -17,7 +17,7 @@ import (
 
 type API interface {
 	Fetch(context.Context, string) (v2ex.Page, error)
-	Reply(context.Context, string, string) error
+	Reply(context.Context, string, string, int) error
 	Thank(context.Context, string, string, int) error
 	Authenticated() bool
 }
@@ -105,6 +105,7 @@ type Model struct {
 	images                   map[string]*imageState
 	imageLoader              *preview.Loader
 	composerKey, replyTarget string
+	replyParentID            int
 	chromeKey                chromeKey
 	chrome                   []string
 	actionsText              string
@@ -595,6 +596,7 @@ func (m *Model) composeTo(id int) tea.Cmd {
 		}
 	}
 	m.mode, m.composerKey = "reply", key
+	m.replyParentID = id
 	m.focus = focusContent
 	content := m.session.Drafts[key]
 	if content == "" {
@@ -689,8 +691,9 @@ func (m *Model) modalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.writing = true
 			m.status = "正在发送回复…"
 			path, api, ctx, draftKey := m.page.Path, m.api, m.ctx, m.draftKey()
+			parentID := m.replyParentID
 			return m, func() tea.Msg {
-				return actionMsg{path: path, kind: "reply", draftKey: draftKey, err: api.Reply(ctx, path, content)}
+				return actionMsg{path: path, kind: "reply", draftKey: draftKey, err: api.Reply(ctx, path, content, parentID)}
 			}
 		}
 		var cmd tea.Cmd

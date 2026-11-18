@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -74,6 +75,40 @@ func TestFetchList(t *testing.T) {
 	}
 }
 
+func TestFetchTopicWithOfficialReplyParents(t *testing.T) {
+	const html = `<div id="Main"><div class="header"><h1>主题</h1></div>
+<div id="topic-replies"><div class="box reply-threads reply-threads-f">
+  <div id="r_501" class="cell" data-reply-id="501"><span class="no">101</span><div class="reply_content">第一条</div></div>
+  <div id="r_503" class="cell" data-reply-id="503" data-parent-id="501"><span class="no">103</span><div class="reply_content">@bob #102</div></div>
+  <div id="r_502" class="cell" data-reply-id="502"><strong><a href="/member/bob">bob</a></strong><span class="no">102</span><div class="reply_content">另一条</div></div>
+  <div id="r_504" class="cell" data-reply-id="504" data-parent-id="12"><span class="no">104</span><div class="reply_content">@bob #102</div></div>
+  <div id="r_505" class="cell" data-reply-id="505" data-parent-id="506"><span class="no">105</span><div class="reply_content">@bob</div></div>
+  <div id="r_506" class="cell" data-reply-id="506" data-parent-id="506"><span class="no">106</span><div class="reply_content">@bob</div></div>
+  <div id="r_507" class="cell" data-reply-id="507"><span class="no">107</span><div class="reply_content">@bob</div></div>
+</div></div></div>`
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, html) }, false)
+	p, err := c.Fetch(context.Background(), "/t/42?p=2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Replies) != 7 || p.Replies[2].ID != 503 || p.Replies[2].ParentID != 501 {
+		t.Fatalf("unexpected replies in floor order: %+v", p.Replies)
+	}
+	var floors, parents []int
+	var inferred []int
+	for _, r := range Conversation(p.Replies) {
+		floors = append(floors, r.Floor)
+		parents = append(parents, r.ParentFloor)
+		if r.Inferred {
+			inferred = append(inferred, r.Floor)
+		}
+	}
+	if !reflect.DeepEqual(floors, []int{101, 103, 102, 107, 104, 105, 106}) ||
+		!reflect.DeepEqual(parents, []int{0, 101, 0, 102, 0, 0, 0}) || !reflect.DeepEqual(inferred, []int{107}) {
+		t.Fatalf("floors: %v; parents: %v; inferred: %v", floors, parents, inferred)
+	}
+}
+
 func TestReplyRefreshesOnceAndDoesNotReplay(t *testing.T) {
 	var posts atomic.Int32
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +124,7 @@ func TestReplyRefreshesOnceAndDoesNotReplay(t *testing.T) {
 		if err := r.ParseForm(); err != nil {
 			t.Error(err)
 		}
-		if r.Form.Get("once") != "12345" || r.Form.Get("content") != "回复 q 中文" {
+		if r.PostForm.Get("once") != "12345" || r.PostForm.Get("content") != "回复 q 中文" || r.PostForm.Has("reply_parent_id") {
 			t.Errorf("form: %v", r.Form)
 		}
 		if r.Header.Get("Origin") == "" || !strings.HasSuffix(r.Referer(), "/t/42?p=2") {
@@ -100,11 +135,56 @@ func TestReplyRefreshesOnceAndDoesNotReplay(t *testing.T) {
 		}
 		http.Redirect(w, r, "/t/42#reply102", http.StatusSeeOther)
 	}, true)
-	if err := c.Reply(context.Background(), "/t/42?p=2", "回复 q 中文"); err != nil {
+	if err := c.Reply(context.Background(), "/t/42?p=2", "回复 q 中文", 901); err != nil {
 		t.Fatal(err)
 	}
 	if posts.Load() != 1 {
 		t.Fatal("POST replayed")
+	}
+}
+
+func TestReplySubmitsOfficialParentAndChecksJSONResult(t *testing.T) {
+	for _, tc := range []struct {
+		name, wantParent, response, wantError string
+		parentID                              int
+	}{
+		{name: "floor", parentID: 901, wantParent: "901", response: `{"success":true,"reply_id":902,"url":"/t/42?p=2"}`},
+		{name: "topic", response: `{"success":true,"reply_id":903,"url":"/t/42?p=2"}`},
+		{name: "rejected", parentID: 901, wantParent: "901", response: `{"success":false,"message":"目标回复已删除"}`, wantError: "目标回复已删除"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var posts atomic.Int32
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/poll_once" {
+					fmt.Fprint(w, "12345")
+					return
+				}
+				if r.Method == http.MethodGet {
+					const field = `<input type="hidden" id="reply_parent_id" name="reply_parent_id" value="777">`
+					fmt.Fprint(w, strings.Replace(topicHTML, "<textarea", field+"<textarea", 1))
+					return
+				}
+				posts.Add(1)
+				if err := r.ParseForm(); err != nil {
+					t.Error(err)
+				}
+				if !r.PostForm.Has("reply_parent_id") || r.PostForm.Get("reply_parent_id") != tc.wantParent || r.PostForm.Get("content") != "正文" || r.PostForm.Get("once") != "12345" {
+					t.Errorf("form: %v", r.PostForm)
+				}
+				if r.Header.Get("Accept") != "application/json" || r.Header.Get("X-Requested-With") != "XMLHttpRequest" {
+					t.Error("missing reply headers")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, tc.response)
+			}, true)
+			err := c.Reply(context.Background(), "/t/42?p=2", "正文", tc.parentID)
+			if tc.wantError == "" && err != nil || tc.wantError != "" && (err == nil || !strings.Contains(err.Error(), tc.wantError)) {
+				t.Fatalf("reply error: %v", err)
+			}
+			if posts.Load() != 1 {
+				t.Fatalf("want one reply POST, got %d", posts.Load())
+			}
+		})
 	}
 }
 
@@ -205,7 +285,7 @@ func TestReplyDoesNotFollowOrReplay307(t *testing.T) {
 		posts.Add(1)
 		http.Redirect(w, r, "/t/42", http.StatusTemporaryRedirect)
 	}, true)
-	if err := c.Reply(context.Background(), "/t/42", "hello"); err == nil {
+	if err := c.Reply(context.Background(), "/t/42", "hello", 0); err == nil {
 		t.Fatal("307 reported as success")
 	}
 	if posts.Load() != 1 {
@@ -252,7 +332,7 @@ func TestLivePublicPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/?tab=tech", "/?tab=hot", "/recent", "/go/go?p=2", "/t/1254603"} {
+	for _, path := range []string{"/?tab=tech", "/?tab=hot", "/recent", "/go/go?p=2", "/t/1254603", "/t/1257128?p=2"} {
 		t.Run(path, func(t *testing.T) {
 			p, err := c.Fetch(context.Background(), path)
 			if err != nil {

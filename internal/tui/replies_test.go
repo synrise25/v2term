@@ -27,7 +27,7 @@ func hotPage() v2ex.Page {
 func hotConversationPage() v2ex.Page {
 	p := hotPage()
 	p.Replies = append(p.Replies,
-		v2ex.Reply{ID: 105, Floor: 5, Author: "eve", Content: "@dave #4 后续回复"},
+		v2ex.Reply{ID: 105, Floor: 5, Author: "eve", ParentID: 104, Content: "也提一下 @carol #3"},
 		v2ex.Reply{ID: 106, Floor: 6, Author: "frank", Content: "@bob #2 同级回复", Thanks: 1},
 		v2ex.Reply{ID: 107, Floor: 7, Author: "grace", Content: "@carol #3 另一条热评的回复"},
 		v2ex.Reply{ID: 108, Floor: 8, Author: "heidi", Content: "不相关的独立回复"},

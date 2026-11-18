@@ -3,6 +3,7 @@ package v2ex
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -67,9 +68,11 @@ func parsePage(doc *goquery.Document, path string) (Page, error) {
 			heart := s.Find(".small.fade img, .thank_area img").First().Parent()
 			text, body := richText(content)
 			p.Replies = append(p.Replies, Reply{ID: number(strings.TrimPrefix(s.AttrOr("id", ""), "r_")),
-				Floor: number(s.Find(".no").First().Text()), Author: label(s.Find("strong a[href^='/member/']").First().Text()),
+				ParentID: max(0, number(s.AttrOr("data-parent-id", ""))),
+				Floor:    number(s.Find(".no").First().Text()), Author: label(s.Find("strong a[href^='/member/']").First().Text()),
 				Age: label(s.Find(".ago").First().AttrOr("title", "")), Thanks: number(heart.Text()), Content: text, Body: body})
 		})
+		sort.SliceStable(p.Replies, func(i, j int) bool { return p.Replies[i].Floor < p.Replies[j].Floor })
 		p.CanReply = main.Find("form textarea[name='content']").Length() > 0
 		return p, nil
 	}

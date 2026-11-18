@@ -49,7 +49,7 @@ func TestTopicAndFloorReplyShortcutsKeepIndependentDrafts(t *testing.T) {
 	m.Update(tea.PasteMsg{Content: "楼层草稿"})
 	m.Update(key(tea.KeyEscape, ""))
 	m.Update(key('a', "a"))
-	if m.editor.Value() != "" || m.draftKey() != "/t/1" || m.replyTarget != "主题" {
+	if m.editor.Value() != "" || m.draftKey() != "/t/1" || m.replyTarget != "主题" || m.replyParentID != 0 {
 		t.Fatal("topic reply inherited a floor mention or draft")
 	}
 	m.Update(tea.PasteMsg{Content: "主题草稿"})

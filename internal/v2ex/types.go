@@ -20,6 +20,7 @@ type Topic struct {
 
 type Reply struct {
 	ID, Floor, Thanks    int
+	ParentID             int
 	Author, Age, Content string
 	Body                 []Element
 }

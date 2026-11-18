@@ -19,6 +19,7 @@ type fakeAPI struct {
 	writeErr        error
 	replies, thanks int
 	content         string
+	replyParentID   int
 	thankID         int
 	thankKind       string
 }
@@ -30,9 +31,9 @@ func (f *fakeAPI) Fetch(_ context.Context, path string) (v2ex.Page, error) {
 	}
 	return p, nil
 }
-func (f *fakeAPI) Reply(_ context.Context, path, content string) error {
+func (f *fakeAPI) Reply(_ context.Context, path, content string, parentID int) error {
 	f.replies++
-	f.content = content
+	f.content, f.replyParentID = content, parentID
 	return f.writeErr
 }
 func (f *fakeAPI) Thank(_ context.Context, path, kind string, id int) error {
